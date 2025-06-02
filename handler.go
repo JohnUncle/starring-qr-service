@@ -30,19 +30,14 @@ type VerifyResponse struct {
 	Message string `json:"Message"`
 }
 
-// QueryCmdRequest 请求结构体
-// 只包含接口文档中需要的字段
-// 这里只做签名校验和设备校验，业务只返回心跳
-//
-type QueryCmdRequest struct {
+// IsConnectRequest 心跳请求结构体
+type IsConnectRequest struct {
 	ViewId       string `json:"ViewId"`
 	UID          string `json:"UID"`
 	UKey         string `json:"UKey"`
 	SN           string `json:"SN"`
 	TamperAlarm  string `json:"TamperAlarm"`
 	DoorMagnetic string `json:"DoorMagnetic"`
-	Timestamp    string `json:"Timestamp"`
-	Sign         string `json:"Sign"`
 }
 
 func checkSign(req QRRequest, secretKey string) string {
@@ -103,7 +98,8 @@ func CheckCodeHandler(cfg *Config) http.HandlerFunc {
 			return
 		}
 		log.Printf("收到设备[%s](%s)的核销请求，CodeVal: %s, CodeType: %s, SN: %s, IsOnline: %s, Timestamp: %s", deviceName, req.UID, req.CodeVal, req.CodeType, req.SN, req.IsOnline, req.Timestamp)
-		// 组装转发参数
+		
+		// 组装转发参数,请求猫酷系统
 		verifyReq := map[string]interface{}{
 			"Verification": 3,
 			"McShopID":     cfg.McShopID,
@@ -174,66 +170,38 @@ func CheckCodeHandler(cfg *Config) http.HandlerFunc {
 	}
 }
 
-func QueryCmdHandler(cfg *Config) http.HandlerFunc {
+func IsConnectHandler(cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		var req QueryCmdRequest
+
+		// 解析请求体
+		var req IsConnectRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			log.Printf("[QueryCmd] 请求解析失败: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"CmdID":"","CmdCode":0,"CmdParams":{}}`))
+			log.Printf("[IsConnect] 请求解析失败: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		// 签名校验
-		if req.Sign != "" {
-			var sb strings.Builder
-			sb.WriteString("ViewId=" + req.ViewId)
-			sb.WriteString("UID=" + req.UID)
-			sb.WriteString("UKey=" + req.UKey)
-			sb.WriteString("SN=" + req.SN)
-			sb.WriteString("TamperAlarm=" + req.TamperAlarm)
-			sb.WriteString("DoorMagnetic=" + req.DoorMagnetic)
-			sb.WriteString("Timestamp=" + req.Timestamp)
-			if cfg.SecretKey != "" {
-				sb.WriteString("SecretKey=" + cfg.SecretKey)
-			}
-			h := md5.New()
-			h.Write([]byte(sb.String()))
-			serverSign := hex.EncodeToString(h.Sum(nil))
-			if !strings.EqualFold(serverSign, req.Sign) {
-				log.Printf("[QueryCmd] 签名校验失败，设备UID: %s，期望: %s，实际: %s", req.UID, serverSign, req.Sign)
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"CmdID":"","CmdCode":0,"CmdParams":{}}`))
-				return
-			}
-		}
-		// 设备识别
-		var deviceName string
-		for _, d := range cfg.Devices {
-			if d.ID == req.UID {
-				deviceName = d.Name
-				break
-			}
-		}
-		if deviceName == "" {
-			log.Printf("[QueryCmd] 未知设备ID(UID): %s", req.UID)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"CmdID":"","CmdCode":0,"CmdParams":{}}`))
-			return
-		}
-		// 返回心跳命令，CmdID用当前时间戳
-		t := time.Now().Format("20060102150405")
+
+		// 记录心跳请求
+		log.Printf("[IsConnect] 收到设备心跳请求: ViewId=%s, UID=%s, SN=%s, TamperAlarm=%s, DoorMagnetic=%s",
+			req.ViewId, req.UID, req.SN, req.TamperAlarm, req.DoorMagnetic)
+
+		// 设置北京时间
+		loc, _ := time.LoadLocation("Asia/Shanghai")
+		now := time.Now().In(loc)
+		
+		// 返回固定格式响应
 		resp := map[string]interface{}{
-			"CmdID":    t,
-			"CmdCode":  0,
-			"CmdParams": map[string]interface{}{ "DateTime": time.Now().Format("2006-01-02 15:04:05") },
+			"CmdID":   now.Format("20060102150405") + "345",
+			"CmdCode": 0,
+			"CmdParams": map[string]interface{}{
+				"DateTime": now.Format("2006-01-02 15:04:05"),
+			},
 		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(resp)

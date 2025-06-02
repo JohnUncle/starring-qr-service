@@ -3,9 +3,7 @@ listen_ip: "0.0.0.0"
 port: "8080"
 verify_url: "http://your-business-system/verify"
 mc_shop_id: 123456
-secret_key: "your-secret-key"
+secret_key: "AB12345678"
 devices:
-  - id: "device001"
+  - id: "123"
     name: "前门二维码机"
-  - id: "device002"
-    name: "后门二维码机"
